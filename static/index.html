@@ -253,8 +253,25 @@
     <section class="import-section">
         <h2>批量匯入名片資料</h2>
         <form id="importForm" novalidate>
-            <label for="rawData">請貼入整理好的名片文字資料串：</label>
-            <textarea id="rawData" name="rawData" placeholder="請將名片一、名片二... 等結構化文字內容貼在這裡"></textarea>
+            <label for="rawData">請貼入 JSON 格式的名片資料：</label>
+            <textarea
+                id="rawData"
+                name="rawData"
+                placeholder='{
+  "cards": [
+    {
+      "公司名稱": "雲啟數位股份有限公司",
+      "地址": "台北市中正區XX路1號",
+      "統一編號": "12345678",
+      "公司電話": "0223456789",
+      "傳真": "0223456799",
+      "聯絡人": [
+        { "姓名": "王小明", "職稱": "營運長", "手機": "0912345678", "Email": "ming@example.com" }
+      ]
+    }
+  ]
+}'
+            ></textarea>
             <button type="submit" class="button" id="submitButton">開始解析並寫入 Airtable</button>
         </form>
         <div id="message" class="message-box"></div>
@@ -386,13 +403,31 @@
             return;
         }
 
+        let parsedCards;
+        try {
+            const parsed = JSON.parse(rawText);
+            if (Array.isArray(parsed)) {
+                parsedCards = parsed;
+            } else if (parsed && Array.isArray(parsed.cards)) {
+                parsedCards = parsed.cards;
+            } else {
+                throw new Error('JSON 需為陣列或包含 cards 陣列。');
+            }
+            if (parsedCards.length === 0) {
+                throw new Error('請提供至少一筆名片資料。');
+            }
+        } catch (error) {
+            showMessage(messageBox, `JSON 解析失敗：${error.message}`, 'error');
+            return;
+        }
+
         submitButton.disabled = true;
         submitButton.textContent = '資料處理中... 請稍候';
 
         try {
             const response = await authorizedFetch('/.netlify/functions/parse_and_write', {
                 method: 'POST',
-                body: JSON.stringify({ text: rawText })
+                body: JSON.stringify({ cards: parsedCards })
             });
 
             const result = await response.json();

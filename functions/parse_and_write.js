@@ -19,6 +19,25 @@ const FIELDS = [
   'Email'
 ];
 
+const SHARED_FIELDS = ['公司名稱', '地址', '統一編號', '公司電話', '傳真'];
+
+const CARD_FIELD_ALIASES = {
+  公司名稱: ['公司名稱', 'companyName', 'company', 'organization'],
+  地址: ['地址', 'address'],
+  統一編號: ['統一編號', 'taxId', '統編', 'uniformNumber'],
+  公司電話: ['公司電話', 'companyPhone', 'telephone', 'phone'],
+  傳真: ['傳真', 'fax']
+};
+
+const CONTACT_FIELD_ALIASES = {
+  姓名: ['姓名', 'name'],
+  職稱: ['職稱', 'title', 'position'],
+  手機: ['手機', 'mobile', 'cell', 'phone'],
+  Email: ['Email', 'email', 'eMail']
+};
+
+const CONTACT_COLLECTION_KEYS = ['聯絡人', 'contacts', 'people', '人員'];
+
 const CARD_SPLIT_REGEX = /(名片[一二三四五六七八九十]+：)/;
 const FIELD_LOOKAHEAD = '(?=職稱|姓名|手機|Email|名片[一二三四五六七八九十]+：|$)';
 
@@ -41,12 +60,18 @@ exports.handler = async function handler(event) {
     return jsonResponse(400, { message: '前端傳送的資料格式錯誤 (非有效 JSON)。' });
   }
 
-  const rawText = (payload.text || '').trim();
-  if (!rawText) {
-    return jsonResponse(400, { message: '未提供文字內容' });
+  const cardsPayload = Array.isArray(payload.cards) ? payload.cards : [];
+  const rawText = typeof payload.text === 'string' ? payload.text.trim() : '';
+
+  let parsedRecords = [];
+  if (cardsPayload.length > 0) {
+    parsedRecords = buildRecordsFromCards(cardsPayload);
+  } else if (rawText) {
+    parsedRecords = parseTextData(rawText);
+  } else {
+    return jsonResponse(400, { message: '未提供名片資料（cards 或 text）。' });
   }
 
-  const parsedRecords = parseTextData(rawText);
   if (parsedRecords.length === 0) {
     return jsonResponse(400, { message: '未能從輸入文字中解析出任何有效名片資訊。請檢查輸入格式。' });
   }
@@ -113,6 +138,88 @@ function parseTextData(rawText) {
   }
 
   return records;
+}
+
+function buildRecordsFromCards(cards) {
+  const records = [];
+
+  for (const card of cards) {
+    if (!card || typeof card !== 'object') {
+      continue;
+    }
+
+    const shared = {};
+    for (const field of SHARED_FIELDS) {
+      shared[field] = normalizeField(field, readField(card, field, CARD_FIELD_ALIASES));
+    }
+
+    const contacts = extractContacts(card);
+    if (contacts.length === 0) {
+      continue;
+    }
+
+    for (const contact of contacts) {
+      if (!contact || typeof contact !== 'object') {
+        continue;
+      }
+
+      const record = { ...shared };
+
+      const name = normalizeField(
+        '姓名',
+        readField(contact, '姓名', CONTACT_FIELD_ALIASES) || readField(card, '姓名', CONTACT_FIELD_ALIASES)
+      );
+      if (!name) {
+        continue;
+      }
+
+      record['姓名'] = name;
+      record['職稱'] = normalizeField('職稱', readField(contact, '職稱', CONTACT_FIELD_ALIASES));
+      record['手機'] = normalizeField('手機', readField(contact, '手機', CONTACT_FIELD_ALIASES));
+      record['Email'] = normalizeField('Email', readField(contact, 'Email', CONTACT_FIELD_ALIASES));
+
+      records.push(cleanRecord(record));
+    }
+  }
+
+  return records;
+}
+
+function extractContacts(card) {
+  for (const key of CONTACT_COLLECTION_KEYS) {
+    if (Array.isArray(card[key])) {
+      return card[key];
+    }
+  }
+
+  const fallbackName = readField(card, '姓名', CONTACT_FIELD_ALIASES);
+  if (!fallbackName) {
+    return [];
+  }
+
+  return [
+    {
+      姓名: fallbackName,
+      職稱: readField(card, '職稱', CONTACT_FIELD_ALIASES),
+      手機: readField(card, '手機', CONTACT_FIELD_ALIASES),
+      Email: readField(card, 'Email', CONTACT_FIELD_ALIASES)
+    }
+  ];
+}
+
+function readField(source, field, aliasMap) {
+  if (!source || typeof source !== 'object') {
+    return '';
+  }
+
+  const aliases = aliasMap[field] || [field];
+  for (const key of aliases) {
+    if (Object.prototype.hasOwnProperty.call(source, key) && source[key] !== undefined && source[key] !== null) {
+      return source[key];
+    }
+  }
+
+  return '';
 }
 
 function extractField(block, field) {
