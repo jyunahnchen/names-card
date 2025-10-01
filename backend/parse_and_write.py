@@ -27,9 +27,8 @@ def parse_text_data(raw_text):
     核心變更：以「公司名稱：」作為每筆名片數據的開始標記進行切分。
     """
     
-    # 【核心修正 1: 依據「公司名稱：」切分名片區塊】
+    # 1. 依據「公司名稱：」切分名片區塊
     # 使用 re.split 依據「公司名稱：」切分，並取用分割後的內容 (排除第一個空白元素)
-    # 使用 re.DOTALL 確保 . 能匹配換行符，涵蓋多行資料
     chunks = re.split(r"公司名稱[:：]", raw_text.strip(), flags=re.DOTALL)[1:]
     
     card_pairs = []
@@ -49,7 +48,6 @@ def parse_text_data(raw_text):
         for field in FIELDS:
             
             # 建立一個包含所有其他字段名稱 + 冒號的列表作為分隔標記
-            # 確保 Lookahead 排除當前字段，並支援中文/英文冒號
             other_fields_regex = '|'.join([re.escape(f) + r'[:：]' for f in FIELDS if f != field]) 
             
             # 組合 lookahead 模式：停止點是下一個字段名稱 + 冒號，或是區塊結尾
@@ -59,9 +57,11 @@ def parse_text_data(raw_text):
                  full_delimiter_pattern = f'(?=$)'
 
 
-            # 找到 關鍵字 + [可選冒號] + 值 的模式，使用 (.+?) 非貪婪匹配到下一個分隔符
-            # 【核心修正 2: 使用非貪婪匹配和精確的 Lookahead 停止點】
-            match = re.search(f'{re.escape(field)}[:：]?(.*?)?{full_delimiter_pattern}', block, re.DOTALL)
+            # 【核心修正點: 嚴格匹配冒號後的可選雜訊，然後才開始非貪婪捕獲值】
+            # Regex: Field Name + Colon + (optional spaces/junk colon) + (Value Capture Group 1) + Lookahead
+            # 匹配欄位名稱 + 冒號 + 任意空格 + 零個或多個額外冒號/空格
+            pattern = f'{re.escape(field)}[:：]\s*[:：]*(.*?)?{full_delimiter_pattern}'
+            match = re.search(pattern, block, re.DOTALL)
             
             if match and match.group(1) is not None:
                 # 提取值
