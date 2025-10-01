@@ -33,7 +33,7 @@ def parse_text_data(raw_text):
     
     parsed_records = []
     
-    # 【修正部分】定義完整的字段分隔符號 (所有字段名稱 + 卡片分隔符)，確保正確切割
+    # 定義完整的字段分隔符號 (所有字段名稱 + 卡片分隔符)，確保正確切割
     field_delimiter_regex = '|'.join(FIELDS) 
     card_delimiter_regex = '名片[一二三四五六七八九十]+：'
     # 組合完整的 lookahead 模式，確保在遇到任何一個字段名稱或卡片分隔符時停止
@@ -46,13 +46,17 @@ def parse_text_data(raw_text):
         # 2. 提取單筆/共用資訊
         for field in FIELDS:
             # 找到 關鍵字 + 值 的模式
-            # 修正：將 lookahead 替換為 FULL_DELIMITER_PATTERN
-            # 使用 re.escape(field) 以防字段名包含特殊 regex 字符
             match = re.search(f'{re.escape(field)}(.+?){full_delimiter_pattern}', block, re.DOTALL)
             
             if match:
                 # 提取並清理值，去除 '項目內容' 或其他的表格文字
-                value = match.group(1).split('項目內容')[-1].strip().replace('\n', ' ')
+                value = match.group(1).strip().replace('\n', ' ')
+
+                # 【修正 1: 處理 '項目內容' 和 '欄位內容' 等前綴的清理】
+                # 移除常見的項目/欄位前綴，確保值從字段內容開始
+                for prefix in ['項目內容', '欄位內容']:
+                    if value.startswith(prefix):
+                        value = value[len(prefix):].strip()
 
                 # 移除所有在值開頭出現的欄位名稱 (這是因為您的輸入格式中，'項目內容'後面可能會跟著欄位名稱)
                 for f in FIELDS:
@@ -219,6 +223,12 @@ def normalize_field(field, value):
 
     cleaned = clean_markdown(value)
 
+    # 【修正 2: 移除無效佔位符】
+    # 將 '名片上未顯示' 和 '未顯示' 等視為空值
+    invalid_placeholders = ['名片上未顯示', '未顯示', '未填公司', '未填姓名', '(未顯示)']
+    if cleaned.strip() in invalid_placeholders:
+         return ''
+    
     for marker in FIELDS:
         if marker != field and marker in cleaned:
             return ''
