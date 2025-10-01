@@ -1,7 +1,9 @@
 import json
 import os
 import re
-from pyairtable import Table
+import urllib.error
+import urllib.parse
+import urllib.request
 
 # --- 安全讀取憑證 ---
 AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY")
@@ -106,10 +108,7 @@ def handler(event, context):
             }
         
         # 3. 準備 Airtable 寫入
-        table = Table(AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
-        
-        # 4. 執行寫入 (使用 pyairtable 的 batch_create 方法)
-        table.batch_create(parsed_records)
+        write_to_airtable(parsed_records)
         
         return {
             'statusCode': 200,
@@ -127,3 +126,54 @@ def handler(event, context):
             'statusCode': 500,
             'body': json.dumps({'message': f'伺服器內部錯誤 (請檢查 Netlify Logs): {str(e)}'})
         }
+
+
+def chunk_records(records, chunk_size=10):
+    """將紀錄切分為符合 Airtable API 限制的批次"""
+    for i in range(0, len(records), chunk_size):
+        yield records[i:i + chunk_size]
+
+
+def write_to_airtable(records):
+    """使用 Airtable REST API 寫入資料，避免外部套件依賴"""
+    base_url = "https://api.airtable.com/v0"
+    encoded_table = urllib.parse.quote(AIRTABLE_TABLE_NAME)
+    url = f"{base_url}/{AIRTABLE_BASE_ID}/{encoded_table}"
+
+    headers = {
+        "Authorization": f"Bearer {AIRTABLE_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    for batch in chunk_records(records):
+        payload = json.dumps({
+            "records": [{"fields": record} for record in batch]
+        }).encode("utf-8")
+
+        request = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+
+        try:
+            with urllib.request.urlopen(request) as response:
+                # 讀取回應以確定請求成功，避免 Airtable 回傳錯誤訊息被忽略
+                response.read()
+        except urllib.error.HTTPError as http_error:
+            error_message = _extract_error_message(http_error)
+            raise RuntimeError(f"Airtable API HTTP {http_error.code}: {error_message}")
+        except urllib.error.URLError as url_error:
+            raise RuntimeError(f"無法連線 Airtable: {url_error.reason}")
+
+
+def _extract_error_message(http_error):
+    """從 Airtable HTTPError 解析錯誤訊息"""
+    try:
+        raw = http_error.read().decode("utf-8")
+        if not raw:
+            return str(http_error)
+
+        payload = json.loads(raw)
+        if isinstance(payload, dict):
+            # Airtable 錯誤格式通常為 {"error": {"message": "..."}}
+            return payload.get("error", {}).get("message", raw)
+        return raw
+    except Exception:
+        return str(http_error)
