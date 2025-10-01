@@ -1,0 +1,13 @@
+[build]
+# 指定前端檔案在哪裡
+publish = "static"
+
+[functions]
+# 指定 Netlify Functions 在哪裡
+directory = "functions"
+# 指定 Functions 使用 Python 執行環境
+node_bundler = "zip" 
+
+[functions."parse_and_write"]
+# 指定 Function 使用 Python (假設您使用 Python 3.8 或更高版本)
+runtime = "python"

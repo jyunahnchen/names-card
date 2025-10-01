@@ -1,0 +1,7 @@
+# requirements.txt
+# 用於處理 Netlify Function 請求
+requests 
+
+# 用於操作 Airtable 
+# 推薦使用 'pyairtable' 或自行使用 'requests' 封裝
+pyairtable 
