@@ -33,11 +33,8 @@ def parse_text_data(raw_text):
     
     parsed_records = []
     
-    # 定義完整的字段分隔符號 (所有字段名稱 + 卡片分隔符)，確保正確切割
-    field_delimiter_regex = '|'.join(FIELDS) 
+    # 定義卡片分隔符號
     card_delimiter_regex = '名片[一二三四五六七八九十]+：'
-    # 組合完整的 lookahead 模式，確保在遇到任何一個字段名稱或卡片分隔符時停止
-    full_delimiter_pattern = f'(?={field_delimiter_regex}|{card_delimiter_regex}|$)' 
 
     for block in card_pairs:
         # 用來儲存從單一區塊解析出的所有資訊
@@ -45,6 +42,18 @@ def parse_text_data(raw_text):
         
         # 2. 提取單筆/共用資訊
         for field in FIELDS:
+            
+            # 【修正 1: 動態生成 Lookahead，排除當前字段，確保非貪婪匹配正確終止】
+            # 建立一個包含所有其他字段名稱的列表
+            other_fields_regex = '|'.join([re.escape(f) for f in FIELDS if f != field]) 
+            
+            # 組合完整的 lookahead 模式 (排除當前字段，以避免解析混亂)
+            if other_fields_regex:
+                 full_delimiter_pattern = f'(?={other_fields_regex}|{card_delimiter_regex}|$)'
+            else:
+                 full_delimiter_pattern = f'(?={card_delimiter_regex}|$)'
+
+
             # 找到 關鍵字 + 值 的模式
             match = re.search(f'{re.escape(field)}(.+?){full_delimiter_pattern}', block, re.DOTALL)
             
@@ -52,15 +61,14 @@ def parse_text_data(raw_text):
                 # 提取並清理值，去除 '項目內容' 或其他的表格文字
                 value = match.group(1).strip().replace('\n', ' ')
 
-                # 【修正 1: 處理 '項目內容' 和 '欄位內容' 等前綴的清理】
-                # 移除常見的項目/欄位前綴，確保值從字段內容開始
+                # 處理 '項目內容' 和 '欄位內容' 等前綴的清理
                 for prefix in ['項目內容', '欄位內容']:
                     if value.startswith(prefix):
                         value = value[len(prefix):].strip()
 
-                # 移除所有在值開頭出現的欄位名稱 (這是因為您的輸入格式中，'項目內容'後面可能會跟著欄位名稱)
-                for f in FIELDS:
-                    value = value.replace(f, '').strip()
+                # 【移除有風險的 field replacement 邏輯】
+                # for f in FIELDS:
+                #    value = value.replace(f, '').strip()
 
                 card_info[field] = normalize_field(field, value)
 
@@ -223,12 +231,13 @@ def normalize_field(field, value):
 
     cleaned = clean_markdown(value)
 
-    # 【修正 2: 移除無效佔位符】
+    # 移除無效佔位符
     # 將 '名片上未顯示' 和 '未顯示' 等視為空值
     invalid_placeholders = ['名片上未顯示', '未顯示', '未填公司', '未填姓名', '(未顯示)']
     if cleaned.strip() in invalid_placeholders:
          return ''
     
+    # 防止值包含其他字段名稱的終止檢查
     for marker in FIELDS:
         if marker != field and marker in cleaned:
             return ''
