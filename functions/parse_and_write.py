@@ -1,16 +1,93 @@
 import json
 import os
+import re
 from pyairtable import Table
-# from airtable_parser import parse_text_data # 假設您自己寫的解析模組
 
 # --- 安全讀取憑證 ---
-# 從 Netlify 環境變數中讀取 API Key 和 Base ID
 AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID")
-AIRTABLE_TABLE_NAME = "工作表1" # 例如: "名片資料"
+# ⚠️ 請務必將 "您的表格名稱" 替換成您在 Airtable 中建立的 Table 名稱
+AIRTABLE_TABLE_NAME = "名片王" 
+
+# 定義您需要的 9 個關鍵欄位
+FIELDS = [
+    '公司名稱', '地址', '統一編號', '公司電話', '傳真', 
+    '職稱', '姓名', '手機', 'Email'
+]
+
+# --------------------------------------------------------------------
+# 【核心解析邏輯】
+# 處理您提供的結構化文字，並將一對多名片拆分成多筆紀錄
+# --------------------------------------------------------------------
+def parse_text_data(raw_text):
+    """將文字資料串解析為 Airtable 紀錄列表 (處理一對多拆分)"""
+    
+    # 1. 以「名片一：」「名片二：」等作為分隔符切分名片區塊
+    # 使用 regex 確保能切分並保留分隔符
+    card_blocks = re.split(r'(名片[一二三四五六七八九十]+：)', raw_text)[1:]
+    
+    # 將切分後的結果 (分隔符, 內容, 分隔符, 內容...) 組合成 [名片一：內容, 名片二：內容]
+    card_pairs = [card_blocks[i] + card_blocks[i+1] for i in range(0, len(card_blocks), 2)]
+    
+    parsed_records = []
+    
+    for block in card_pairs:
+        # 用來儲存從單一區塊解析出的所有資訊
+        card_info = {}
+        
+        # 2. 提取單筆/共用資訊
+        for field in FIELDS:
+            # 找到 項目內容 + 關鍵字 + 值 的模式
+            # 這裡使用 item_pattern 來匹配 '項目內容' '公司名稱' '值' 這種結構
+            match = re.search(f'{field}(.+?)(?=職稱|姓名|手機|Email|名片[一二三四五六七八九十]+：|$)', block, re.DOTALL)
+            
+            if match:
+                # 提取並清理值，去除 '項目內容' 或其他的表格文字
+                value = match.group(1).split('項目內容')[-1].strip().replace('\n', ' ')
+                
+                # 移除所有在值開頭出現的欄位名稱 (這是因為您的輸入格式中，'項目內容'後面可能會跟著欄位名稱)
+                for f in FIELDS:
+                    value = value.replace(f, '').strip()
+
+                card_info[field] = value
+
+        # 3. 處理一對多 (多個人名) 的拆分邏輯
+        names = [n.strip() for n in card_info.get('姓名', '').split('/') if n.strip()]
+        
+        if not names:
+            continue # 如果沒有姓名，跳過這張名片
+
+        # 取得多人的職稱、手機、Email 資訊
+        titles = [t.strip() for t in re.split(r' \/ | / |\n', card_info.get('職稱', '')) if t.strip()]
+        mobiles = [m.strip() for m in re.split(r' \(|\) | / ', card_info.get('手機', '')) if m.strip() and re.search(r'\d', m)]
+        emails = [e.strip() for e in re.split(r' \(|\) | / ', card_info.get('Email', '')) if e.strip() and '@' in e]
+
+        # 4. 建立最終的紀錄
+        for i, name in enumerate(names):
+            record = {}
+            # 寫入共用資訊
+            for field in ['公司名稱', '地址', '統一編號', '公司電話', '傳真']:
+                record[field] = card_info.get(field, '')
+
+            # 寫入個人資訊 (按順序匹配)
+            record['姓名'] = name
+            record['職稱'] = titles[i] if i < len(titles) else titles[0] if titles else '' # 嘗試按序取，若無則取第一個
+            record['手機'] = mobiles[i] if i < len(mobiles) else ''
+            record['Email'] = emails[i] if i < len(emails) else ''
+            
+            parsed_records.append(record)
+
+    return parsed_records
 
 
+# --------------------------------------------------------------------
+# Netlify Function 入口點
+# --------------------------------------------------------------------
 def handler(event, context):
+    # 檢查憑證是否已從 Netlify 環境變數載入
+    if not AIRTABLE_API_KEY or not AIRTABLE_BASE_ID:
+        return {'statusCode': 500, 'body': json.dumps({'message': '後端憑證未設定 (AIRTABLE_API_KEY 或 BASE_ID 遺失)。請檢查 Netlify 環境變數。'})}
+    
     try:
         # 1. 接收前端傳來的資料
         body = json.loads(event['body'])
@@ -19,23 +96,19 @@ def handler(event, context):
         if not raw_text:
             return {'statusCode': 400, 'body': json.dumps({'message': '未提供文字內容'})}
 
-        # 2. 【核心解析邏輯】
-        # 這裡需要執行您先前規劃的解析步驟，將 raw_text 轉換為一個列表，
-        # 每個元素是一個字典，包含 9 個欄位 (含一對多的拆分)
+        # 2. 執行核心解析邏輯
+        parsed_records = parse_text_data(raw_text) 
         
-        # 假設 parse_text_data(raw_text) 會返回如下格式:
-        # parsed_records = [
-        #    {'公司名稱': '有泓創意', '姓名': '洪雨彤 Ivy Hung', ...},
-        #    {'公司名稱': '有泓創意', '姓名': '吳至軒 Edward Wu', ...},
-        #    ...
-        # ]
-        parsed_records = your_custom_parser(raw_text) 
+        if not parsed_records:
+             return {
+                'statusCode': 400,
+                'body': json.dumps({'message': '未能從輸入文字中解析出任何有效名片資訊。請檢查輸入格式。'})
+            }
         
         # 3. 準備 Airtable 寫入
         table = Table(AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
         
-        # 4. 執行寫入 (使用 pyairtable 的 create 方法)
-        # pyairtable 需要一個 {field_name: value} 的字典列表
+        # 4. 執行寫入 (使用 pyairtable 的 batch_create 方法)
         table.batch_create(parsed_records)
         
         return {
@@ -43,11 +116,14 @@ def handler(event, context):
             'body': json.dumps({'message': f'成功寫入 {len(parsed_records)} 筆資料到 Airtable'})
         }
 
+    except json.JSONDecodeError:
+        # 處理前端送來的 JSON 格式錯誤
+        return {'statusCode': 400, 'body': json.dumps({'message': '前端傳送的資料格式錯誤 (非有效 JSON)。'})}
+
     except Exception as e:
+        # 處理其他伺服器端錯誤，並打印到 Netlify Log 以供偵錯
         print(f"寫入失敗: {e}")
         return {
             'statusCode': 500,
-            'body': json.dumps({'message': f'伺服器錯誤: {str(e)}'})
+            'body': json.dumps({'message': f'伺服器內部錯誤 (請檢查 Netlify Logs): {str(e)}'})
         }
-
-# (註: 您的文字解析函數 your_custom_parser 需要另外編寫)
