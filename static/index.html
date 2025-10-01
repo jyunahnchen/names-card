@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>名片資訊批量匯入系統</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f7f6;
+        }
+        .container {
+            max-width: 900px;
+            margin: auto;
+            background: #ffffff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #555;
+        }
+        textarea {
+            width: 100%;
+            padding: 15px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            resize: vertical;
+            min-height: 400px; /* 較大的輸入區域 */
+            font-size: 14px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+            display: block;
+            width: 100%;
+            margin-top: 20px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .message-box {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            min-height: 50px;
+            font-weight: bold;
+            text-align: center;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>名片資訊批量匯入 Airtable</h1>
+    
+    <form id="importForm">
+        <label for="rawData">請貼入整理好的名片文字資料串：</label>
+        <textarea id="rawData" name="rawData" placeholder="請將名片一、名片二... 等結構化文字內容貼在這裡"></textarea>
+        
+        <button type="submit" id="submitButton">開始解析並寫入 Airtable</button>
+    </form>
+    
+    <div id="message" class="message-box" style="display: none;"></div>
+</div>
+
+<script>
+    document.getElementById('importForm').addEventListener('submit', async function(event) {
+        event.preventDefault(); // 阻止表單傳統提交
+        
+        const rawText = document.getElementById('rawData').value.trim();
+        const messageBox = document.getElementById('message');
+        const submitButton = document.getElementById('submitButton');
+        
+        messageBox.style.display = 'none';
+        messageBox.className = 'message-box';
+        submitButton.disabled = true;
+        submitButton.textContent = '資料處理中... 請稍候';
+        
+        if (!rawText) {
+            showMessage('請輸入文字內容！', 'error');
+            submitButton.disabled = false;
+            submitButton.textContent = '開始解析並寫入 Airtable';
+            return;
+        }
+
+        // Netlify Function 的 URL 路徑
+        // 這會指向您 functions/parse_and_write.py 檔案
+        const functionUrl = '/.netlify/functions/parse_and_write';
+
+        try {
+            const response = await fetch(functionUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ text: rawText })
+            });
+            
+            const result = await response.json();
+
+            if (response.ok) {
+                // HTTP 狀態碼 200 成功
+                showMessage(`✅ 成功！${result.message}`, 'success');
+                // 清空輸入框以利下次輸入
+                document.getElementById('rawData').value = ''; 
+            } else {
+                // 處理非 200 的錯誤狀態碼 (如 400, 500)
+                showMessage(`❌ 寫入失敗: ${result.message || '未知錯誤'}`, 'error');
+            }
+            
+        } catch (error) {
+            console.error('Fetch error:', error);
+            showMessage(`❌ 網路連線或伺服器錯誤: ${error.message}`, 'error');
+        } finally {
+            submitButton.disabled = false;
+            submitButton.textContent = '開始解析並寫入 Airtable';
+        }
+    });
+
+    function showMessage(msg, type) {
+        const messageBox = document.getElementById('message');
+        messageBox.textContent = msg;
+        messageBox.className = `message-box ${type}`;
+        messageBox.style.display = 'block';
+    }
+</script>
+
+</body>
+</html>
