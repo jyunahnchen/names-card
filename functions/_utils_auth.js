@@ -2,12 +2,21 @@ const crypto = require('crypto');
 
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-const SESSION_SECRET = process.env.ADMIN_SESSION_SECRET;
 const TOKEN_TTL_MS = Number(process.env.ADMIN_SESSION_TTL_MS || 12 * 60 * 60 * 1000); // 預設 12 小時
 
+function getSessionSecret() {
+  if (!ADMIN_USERNAME || !ADMIN_PASSWORD) {
+    return null;
+  }
+  return crypto
+    .createHash('sha256')
+    .update(`${ADMIN_USERNAME}:${ADMIN_PASSWORD}`)
+    .digest();
+}
+
 function ensureAuthConfig() {
-  if (!ADMIN_USERNAME || !ADMIN_PASSWORD || !SESSION_SECRET) {
-    throw new Error('後端登入環境變數未設定完整 (ADMIN_USERNAME / ADMIN_PASSWORD / ADMIN_SESSION_SECRET)');
+  if (!ADMIN_USERNAME || !ADMIN_PASSWORD) {
+    throw new Error('後端登入環境變數未設定完整 (ADMIN_USERNAME / ADMIN_PASSWORD)');
   }
 }
 
@@ -22,9 +31,6 @@ function createSessionToken(username) {
 function verifySessionToken(token) {
   if (!token || typeof token !== 'string') {
     return null;
-  }
-  if (!SESSION_SECRET) {
-    throw new Error('ADMIN_SESSION_SECRET 未設定');
   }
   const parts = token.split('.');
   if (parts.length !== 2) {
@@ -95,7 +101,11 @@ function timingSafeCompare(a, b) {
 }
 
 function signPayload(payload) {
-  return base64UrlEncode(crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest());
+  const secret = getSessionSecret();
+  if (!secret) {
+    throw new Error('登入環境未設定 (ADMIN_USERNAME / ADMIN_PASSWORD)');
+  }
+  return base64UrlEncode(crypto.createHmac('sha256', secret).update(payload).digest());
 }
 
 function base64UrlEncode(buffer) {
