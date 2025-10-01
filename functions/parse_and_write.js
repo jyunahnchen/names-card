@@ -347,8 +347,18 @@ function normalizeField(field, value) {
   }
 
   if (field === '手機' || field === '公司電話') {
-    const digits = sanitized.replace(/[^0-9+]/g, '');
-    return digits || '';
+    const candidates = sanitized
+      .split(/[、／/,，;；]+/)
+      .map((part) => part.replace(/[^0-9+]/g, ''))
+      .filter(Boolean);
+
+    if (candidates.length === 0) {
+      const single = sanitized.replace(/[^0-9+]/g, '');
+      return single || '';
+    }
+
+    const unique = Array.from(new Set(candidates));
+    return unique.join(' / ');
   }
 
   const trimmed = sanitized.trim().replace(/^[\-_.;,:/\\\s]+|[\-_.;,:/\\\s]+$/g, '');
