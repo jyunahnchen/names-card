@@ -19,89 +19,51 @@ FIELDS = [
 
 # --------------------------------------------------------------------
 # 【核心解析邏輯】
-# 處理您提供的結構化文字，並將一對多名片拆分成多筆紀錄
+# 處理您提供的結構化文字，並將每張名片拆分成單筆紀錄
 # --------------------------------------------------------------------
 def parse_text_data(raw_text):
-    """將文字資料串解析為 Airtable 紀錄列表 (處理一對多拆分)"""
+    """將文字資料串解析為 Airtable 紀錄列表"""
     
-    # 1. 以「名片一：」「名片二：」等作為分隔符切分名片區塊
-    # 使用 regex 確保能切分並保留分隔符
-    card_blocks = re.split(r'(名片[一二三四五六七八九十]+：)', raw_text)[1:]
-    
-    # 將切分後的結果 (分隔符, 內容, 分隔符, 內容...) 組合成 [名片一：內容, 名片二：內容]
-    card_pairs = [card_blocks[i] + card_blocks[i+1] for i in range(0, len(card_blocks), 2)]
+    import re
     
     parsed_records = []
     
-    # 定義卡片分隔符號
-    card_delimiter_regex = '名片[一二三四五六七八九十]+：'
-
-    for block in card_pairs:
-        # 用來儲存從單一區塊解析出的所有資訊
+    # 使用 regex 提取每個名片區塊
+    card_blocks = re.findall(r'(### 名片[一二三四五六七八九十]+：.*?)(?=---|$)', raw_text, re.DOTALL)
+    
+    for block in card_blocks:
+        if not block.strip():
+            continue
+        
         card_info = {}
+        lines = block.split('\n')
         
-        # 2. 提取單筆/共用資訊
+        for line in lines:
+            line = line.strip()
+            if '：' in line and not line.startswith('**備註：'):
+                try:
+                    field, value = line.split('：', 1)
+                    field = field.strip()
+                    if field.lower() == 'email':
+                        field = 'Email'
+                    value = value.strip().replace('**', '')
+                    if field in FIELDS:
+                        card_info[field] = value.strip()
+                except ValueError:
+                    continue
+        
+        # 如果沒有姓名，跳過
+        if not card_info.get('姓名'):
+            continue
+        
+        # 正規化每個欄位
+        record = {}
         for field in FIELDS:
-            
-            # 【核心修正點 1: 動態生成 Lookahead，確保所有停止點都包含冒號】
-            # 建立一個包含所有其他字段名稱 + 冒號的列表作為分隔標記
-            other_fields_regex = '|'.join([re.escape(f) + ':' for f in FIELDS if f != field]) 
-            
-            # 組合完整的 lookahead 模式 (排除當前字段，以避免解析混亂)
-            if other_fields_regex:
-                 # 注意：這裡 card_delimiter_regex '名片[一二三...]+：' 已經包含冒號
-                 full_delimiter_pattern = f'(?={other_fields_regex}|{card_delimiter_regex}|$)'
-            else:
-                 full_delimiter_pattern = f'(?={card_delimiter_regex}|$)'
-
-
-            # 【核心修正點 2: 強制匹配當前字段後的冒號】
-            # 找到 關鍵字 + 冒號 + 值 的模式，並使用 Lookahead 確保在下一個字段停止
-            match = re.search(f'{re.escape(field)}:(.+?){full_delimiter_pattern}', block, re.DOTALL)
-            
-            if match:
-                # 提取並清理值，去除 '項目內容' 或其他的表格文字
-                value = match.group(1).strip().replace('\n', ' ')
-
-                # 處理 '項目內容' 和 '欄位內容' 等前綴的清理
-                for prefix in ['項目內容', '欄位內容']:
-                    if value.startswith(prefix):
-                        value = value[len(prefix):].strip()
-
-                card_info[field] = normalize_field(field, value)
-
-        # 3. 處理一對多 (多個人名) 的拆分邏輯
-        names = [normalize_field('姓名', n.strip()) for n in card_info.get('姓名', '').split('/') if n.strip()]
-        names = [n for n in names if n]
+            record[field] = normalize_field(field, card_info.get(field, ''))
         
-        if not names:
-            continue # 如果沒有姓名，跳過這張名片
-
-        # 取得多人的職稱、手機、Email 資訊
-        titles = [normalize_field('職稱', t) for t in re.split(r' \/ | / |\n', card_info.get('職稱', '')) if t.strip()]
-        titles = [t for t in titles if t]
-        mobiles = [normalize_field('手機', m) for m in re.split(r' \(|\) | / ', card_info.get('手機', '')) if m.strip()]
-        mobiles = [m for m in mobiles if m]
-        emails = [normalize_field('Email', e) for e in re.split(r' \(|\) | / ', card_info.get('Email', '')) if e.strip()]
-        emails = [e for e in emails if e]
-
-        # 4. 建立最終的紀錄
-        for i, name in enumerate(names):
-            record = {}
-            # 寫入共用資訊
-            for field in ['公司名稱', '地址', '統一編號', '公司電話', '傳真']:
-                record[field] = normalize_field(field, card_info.get(field, ''))
-
-            # 寫入個人資訊 (按順序匹配)
-            record['姓名'] = name
-            record['職稱'] = titles[i] if i < len(titles) else titles[0] if titles else '' # 嘗試按序取，若無則取第一個
-            record['手機'] = mobiles[i] if i < len(mobiles) else ''
-            record['Email'] = emails[i] if i < len(emails) else ''
-
-            parsed_records.append({k: normalize_field(k, v) for k, v in record.items()})
-
+        parsed_records.append(record)
+    
     return parsed_records
-
 
 # --------------------------------------------------------------------
 # Netlify Function 入口點 (不變)
