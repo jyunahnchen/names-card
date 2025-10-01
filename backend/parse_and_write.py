@@ -8,11 +8,12 @@ import urllib.request
 # --- 安全讀取憑證 ---
 AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID")
+# ⚠️ 請務必將 "您的表格名稱" 替換成您在 Airtable 中建立的 Table 名稱
 AIRTABLE_TABLE_NAME = "名片王" 
 
 # 定義您需要的 9 個關鍵欄位
 FIELDS = [
-    '公司名稱', '地址', '統一編號', '公司電話', '傳真',
+    '公司名稱', '地址', '統一編號', '公司電話', '傳真', 
     '職稱', '姓名', '手機', 'Email'
 ]
 
@@ -21,78 +22,76 @@ FIELDS = [
 # 處理您提供的結構化文字，並將一對多名片拆分成多筆紀錄
 # --------------------------------------------------------------------
 def parse_text_data(raw_text):
-    """將文字資料串解析為 Airtable 紀錄列表 (處理一對多拆分)"""
+    """
+    將文字資料串解析為 Airtable 紀錄列表 (處理一對多拆分)。
+    核心變更：以「公司名稱：」作為每筆名片數據的開始標記進行切分。
+    """
     
-    # 1. 以「名片一：」「名片二：」等作為分隔符切分名片區塊
-    # 使用 regex 確保能切分並保留分隔符
-    card_blocks = re.split(r'(名片[一二三四五六七八九十]+：)', raw_text)
+    # 【核心修正 1: 依據「公司名稱：」切分名片區塊】
+    # 使用 re.split 依據「公司名稱：」切分，並取用分割後的內容 (排除第一個空白元素)
+    # 使用 re.DOTALL 確保 . 能匹配換行符，涵蓋多行資料
+    chunks = re.split(r"公司名稱[:：]", raw_text.strip(), flags=re.DOTALL)[1:]
     
-    # 過濾掉空字串並重新組合，確保每個名片區塊都包含其標題
     card_pairs = []
-    for i in range(1, len(card_blocks), 2):
-        if i + 1 < len(card_blocks):
-            card_pairs.append(card_blocks[i] + card_blocks[i+1])
+    # 將 "公司名稱："加回去，並將其視為一個完整的名片區塊
+    for chunk in chunks:
+        if chunk.strip():
+            # 將完整的欄位名稱和冒號補回，確保後續正則匹配的精確性
+            card_pairs.append("公司名稱：" + chunk.strip())
     
     parsed_records = []
-    
+
     for block in card_pairs:
+        # 用來儲存從單一區塊解析出的所有資訊
         card_info = {}
         
-        # 建立所有字段的正規表達式，用於作為下一個字段的停止點
-        # 這裡使用非捕獲組 (?:...) 和正向預查 (?=...) 來定義停止點
-        # 確保停止點包含中文冒號和英文冒號
-        field_delimiters = '|'.join([re.escape(f) + r'[:：]' for f in FIELDS])
-        
-        for i, field in enumerate(FIELDS):
-            # 構建當前字段的匹配模式
-            # 匹配 '字段名稱' 後面跟著可選的冒號，然後是非貪婪匹配任意字符直到下一個字段的開頭或區塊結束
-            # 如果是最後一個字段，則匹配到區塊結束
-            if i < len(FIELDS) - 1:
-                # 下一個字段的標記作為停止點
-                next_field_pattern = re.escape(FIELDS[i+1]) + r'[:：]'
-                # 匹配當前字段的值，直到下一個字段的標記出現
-                match = re.search(f'{re.escape(field)}[:：](.*?)(?={next_field_pattern}|\n\n|\Z)', block, re.DOTALL)
-            else:
-                # 如果是最後一個字段 (Email)，則匹配到區塊結束
-                match = re.search(f'{re.escape(field)}[:：](.*)', block, re.DOTALL)
+        # 2. 提取單筆/共用資訊
+        for field in FIELDS:
             
-            value = ''
-            if match:
-                value = match.group(1).strip()
-                # 移除值中可能包含的下一個字段的名稱（如果匹配到了）
-                if i < len(FIELDS) - 1:
-                    next_field_name = FIELDS[i+1]
-                    if value.startswith(next_field_name):
-                        value = '' # 如果值以其他字段名稱開頭，說明匹配錯誤，將其視為空
+            # 建立一個包含所有其他字段名稱 + 冒號的列表作為分隔標記
+            # 確保 Lookahead 排除當前字段，並支援中文/英文冒號
+            other_fields_regex = '|'.join([re.escape(f) + r'[:：]' for f in FIELDS if f != field]) 
+            
+            # 組合 lookahead 模式：停止點是下一個字段名稱 + 冒號，或是區塊結尾
+            if other_fields_regex:
+                 full_delimiter_pattern = f'(?={other_fields_regex}|$)'
+            else:
+                 full_delimiter_pattern = f'(?=$)'
 
-            card_info[field] = normalize_field(field, value)
+
+            # 找到 關鍵字 + [可選冒號] + 值 的模式，使用 (.+?) 非貪婪匹配到下一個分隔符
+            # 【核心修正 2: 使用非貪婪匹配和精確的 Lookahead 停止點】
+            match = re.search(f'{re.escape(field)}[:：]?(.*?)?{full_delimiter_pattern}', block, re.DOTALL)
+            
+            if match and match.group(1) is not None:
+                # 提取值
+                value = match.group(1).strip().replace('\n', ' ')
+
+                # 處理 '項目內容' 和 '欄位內容' 等前綴的清理
+                for prefix in ['項目內容', '欄位內容']:
+                    if value.startswith(prefix):
+                        value = value[len(prefix):].strip()
+
+                card_info[field] = normalize_field(field, value)
+            else:
+                # 若找不到欄位，給予一個預設值，確保後續處理不會出錯
+                card_info[field] = ""
+
 
         # 3. 處理一對多 (多個人名) 的拆分邏輯
-        # 這裡假設姓名、職稱、手機、Email 都是以 '/' 或 ' ' 分隔的多個值
-        names_raw = card_info.get('姓名', '')
-        titles_raw = card_info.get('職稱', '')
-        mobiles_raw = card_info.get('手機', '')
-        emails_raw = card_info.get('Email', '')
-
-        # 使用更精確的分隔符號，避免誤分
-        names = [normalize_field('姓名', n.strip()) for n in re.split(r'[\s/、]', names_raw) if n.strip()]
-        titles = [normalize_field('職稱', t.strip()) for t in re.split(r'[\s/、]', titles_raw) if t.strip()]
-        mobiles = [normalize_field('手機', m.strip()) for m in re.split(r'[\s/、]', mobiles_raw) if m.strip()]
-        emails = [normalize_field('Email', e.strip()) for e in re.split(r'[\s/、]', emails_raw) if e.strip()]
-
+        names = [normalize_field('姓名', n.strip()) for n in card_info.get('姓名', '').split('/') if n.strip()]
         names = [n for n in names if n]
-        titles = [t for t in titles if t]
-        mobiles = [m for m in mobiles if m]
-        emails = [e for e in emails if e]
         
         if not names:
-            # 如果沒有姓名，但有其他資訊，也嘗試建立一筆紀錄
-            if any(card_info.values()):
-                record = {}
-                for field in FIELDS:
-                    record[field] = normalize_field(field, card_info.get(field, ''))
-                parsed_records.append(record)
-            continue
+            continue # 如果沒有姓名，跳過這張名片
+
+        # 取得多人的職稱、手機、Email 資訊 (使用 / 或 \n 分隔)
+        titles = [normalize_field('職稱', t) for t in re.split(r' \/ | / |\n', card_info.get('職稱', '')) if t.strip()]
+        titles = [t for t in titles if t]
+        mobiles = [normalize_field('手機', m) for m in re.split(r' \(|\) | / ', card_info.get('手機', '')) if m.strip()]
+        mobiles = [m for m in mobiles if m]
+        emails = [normalize_field('Email', e) for e in re.split(r' \(|\) | / ', card_info.get('Email', '')) if e.strip()]
+        emails = [e for e in emails if e]
 
         # 4. 建立最終的紀錄
         for i, name in enumerate(names):
@@ -101,9 +100,10 @@ def parse_text_data(raw_text):
             for field in ['公司名稱', '地址', '統一編號', '公司電話', '傳真']:
                 record[field] = normalize_field(field, card_info.get(field, ''))
 
-            # 寫入個人資訊 (按順序匹配，如果個人資訊數量不夠，則留空)
+            # 寫入個人資訊 (按順序匹配)
             record['姓名'] = name
-            record['職稱'] = titles[i] if i < len(titles) else ''
+            # 嘗試按序取職稱，若無則取第一個
+            record['職稱'] = titles[i] if i < len(titles) else titles[0] if titles else '' 
             record['手機'] = mobiles[i] if i < len(mobiles) else ''
             record['Email'] = emails[i] if i < len(emails) else ''
 
@@ -154,7 +154,8 @@ def handler(event, context):
         print(f"寫入失敗: {e}")
         return {
             'statusCode': 500,
-            'body': json.dumps({'message': f'伺服器內部錯誤 (請檢查 Netlify Logs): {str(e)}'})}
+            'body': json.dumps({'message': f'伺服器內部錯誤 (請檢查 Netlify Logs): {str(e)}'})
+        }
 
 
 def chunk_records(records, chunk_size=10):
@@ -238,15 +239,15 @@ def normalize_field(field, value):
     cleaned = clean_markdown(value)
 
     # 移除無效佔位符
-    invalid_placeholders = ['名片上未顯示', '未顯示', '未填公司', '未填姓名', '(未顯示)', '：'] # 新增冒號作為無效佔位符
+    # 將 '名片上未顯示' 和 '未顯示' 等視為空值
+    invalid_placeholders = ['名片上未顯示', '未顯示', '未填公司', '未填姓名', '(未顯示)']
     if cleaned.strip() in invalid_placeholders:
          return ''
     
-    # 修正：不再檢查值是否包含其他字段名稱，因為這應該由解析邏輯處理
-    # if field != 'Email': # Email 字段可能包含其他字段名稱的子串，不應過濾
-    #     for marker in FIELDS:
-    #         if marker != field and marker in cleaned:
-    #             return ''
+    # 防止值包含其他字段名稱的終止檢查
+    for marker in FIELDS:
+        if marker != field and marker in cleaned:
+            return ''
 
     if field == 'Email':
         emails = re.findall(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', cleaned)
@@ -256,13 +257,11 @@ def normalize_field(field, value):
         digits = re.sub(r'[^0-9+]', '', cleaned)
         return digits if digits else ''
 
-    cleaned = cleaned.strip('-_. ,;:/\\') # 移除更多可能的標點符號
+    cleaned = cleaned.strip('-_.,;:/\\ ')
     if not cleaned:
         return ''
 
-    # 確保值中包含至少一個字母、數字或中文字符，避免純標點符號或空白被視為有效值
     if not re.search(r'[A-Za-z0-9\u4e00-\u9fff]', cleaned):
         return ''
 
     return cleaned
-
