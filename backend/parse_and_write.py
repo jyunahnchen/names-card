@@ -43,19 +43,21 @@ def parse_text_data(raw_text):
         # 2. 提取單筆/共用資訊
         for field in FIELDS:
             
-            # 【修正 1: 動態生成 Lookahead，排除當前字段，確保非貪婪匹配正確終止】
-            # 建立一個包含所有其他字段名稱的列表
-            other_fields_regex = '|'.join([re.escape(f) for f in FIELDS if f != field]) 
+            # 【核心修正點 1: 動態生成 Lookahead，確保所有停止點都包含冒號】
+            # 建立一個包含所有其他字段名稱 + 冒號的列表作為分隔標記
+            other_fields_regex = '|'.join([re.escape(f) + ':' for f in FIELDS if f != field]) 
             
             # 組合完整的 lookahead 模式 (排除當前字段，以避免解析混亂)
             if other_fields_regex:
+                 # 注意：這裡 card_delimiter_regex '名片[一二三...]+：' 已經包含冒號
                  full_delimiter_pattern = f'(?={other_fields_regex}|{card_delimiter_regex}|$)'
             else:
                  full_delimiter_pattern = f'(?={card_delimiter_regex}|$)'
 
 
-            # 找到 關鍵字 + 值 的模式
-            match = re.search(f'{re.escape(field)}(.+?){full_delimiter_pattern}', block, re.DOTALL)
+            # 【核心修正點 2: 強制匹配當前字段後的冒號】
+            # 找到 關鍵字 + 冒號 + 值 的模式，並使用 Lookahead 確保在下一個字段停止
+            match = re.search(f'{re.escape(field)}:(.+?){full_delimiter_pattern}', block, re.DOTALL)
             
             if match:
                 # 提取並清理值，去除 '項目內容' 或其他的表格文字
@@ -65,10 +67,6 @@ def parse_text_data(raw_text):
                 for prefix in ['項目內容', '欄位內容']:
                     if value.startswith(prefix):
                         value = value[len(prefix):].strip()
-
-                # 【移除有風險的 field replacement 邏輯】
-                # for f in FIELDS:
-                #    value = value.replace(f, '').strip()
 
                 card_info[field] = normalize_field(field, value)
 
@@ -106,7 +104,7 @@ def parse_text_data(raw_text):
 
 
 # --------------------------------------------------------------------
-# Netlify Function 入口點
+# Netlify Function 入口點 (不變)
 # --------------------------------------------------------------------
 def handler(event, context):
     # 檢查憑證是否已從 Netlify 環境變數載入
