@@ -33,15 +33,22 @@ def parse_text_data(raw_text):
     
     parsed_records = []
     
+    # 【修正部分】定義完整的字段分隔符號 (所有字段名稱 + 卡片分隔符)，確保正確切割
+    field_delimiter_regex = '|'.join(FIELDS) 
+    card_delimiter_regex = '名片[一二三四五六七八九十]+：'
+    # 組合完整的 lookahead 模式，確保在遇到任何一個字段名稱或卡片分隔符時停止
+    full_delimiter_pattern = f'(?={field_delimiter_regex}|{card_delimiter_regex}|$)' 
+
     for block in card_pairs:
         # 用來儲存從單一區塊解析出的所有資訊
         card_info = {}
         
         # 2. 提取單筆/共用資訊
         for field in FIELDS:
-            # 找到 項目內容 + 關鍵字 + 值 的模式
-            # 這裡使用 item_pattern 來匹配 '項目內容' '公司名稱' '值' 這種結構
-            match = re.search(f'{field}(.+?)(?=職稱|姓名|手機|Email|名片[一二三四五六七八九十]+：|$)', block, re.DOTALL)
+            # 找到 關鍵字 + 值 的模式
+            # 修正：將 lookahead 替換為 FULL_DELIMITER_PATTERN
+            # 使用 re.escape(field) 以防字段名包含特殊 regex 字符
+            match = re.search(f'{re.escape(field)}(.+?){full_delimiter_pattern}', block, re.DOTALL)
             
             if match:
                 # 提取並清理值，去除 '項目內容' 或其他的表格文字
