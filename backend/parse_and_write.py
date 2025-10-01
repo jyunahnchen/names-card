@@ -21,10 +21,8 @@ FIELDS = [
 # 【核心解析邏輯】
 # 處理您提供的結構化文字，並將一對多名片拆分成多筆紀錄
 # --------------------------------------------------------------------
-# ⚠️ 注意：此版本已簡化，僅為測試「公司名稱」欄位解析是否正確。
-# 所有的欄位名稱在輸入時必須以冒號 ":" 結尾，例如：公司名稱:值
 def parse_text_data(raw_text):
-    """將文字資料串解析為 Airtable 紀錄列表 (僅解析公司名稱)"""
+    """將文字資料串解析為 Airtable 紀錄列表 (支援冒號分隔)"""
     
     # 1. 以「名片一：」「名片二：」等作為分隔符切分名片區塊
     # 使用 regex 確保能切分並保留分隔符
@@ -46,7 +44,8 @@ def parse_text_data(raw_text):
         for field in FIELDS:
             
             # 建立一個包含所有其他字段名稱 + 冒號的列表作為分隔標記
-            other_fields_regex = '|'.join([re.escape(f) + ':' for f in FIELDS if f != field]) 
+            # 【關鍵修正：動態排除當前欄位】
+            other_fields_regex = '|'.join([re.escape(f) + r'[:：]' for f in FIELDS if f != field]) 
             
             # 組合完整的 lookahead 模式
             if other_fields_regex:
@@ -55,12 +54,12 @@ def parse_text_data(raw_text):
                  full_delimiter_pattern = f'(?={card_delimiter_regex}|$)'
 
 
-            # 【核心修正點: 強制匹配當前字段後的冒號】
-            # 找到 關鍵字 + 冒號 + 值 的模式，並使用 Lookahead 確保在下一個字段停止
-            match = re.search(f'{re.escape(field)}:(.+?){full_delimiter_pattern}', block, re.DOTALL)
+            # 找到 關鍵字 + [可選冒號] + 值 的模式，使用 (.+?) 非貪婪匹配到下一個分隔符
+            # 【強制匹配：支持英文/中文冒號並非貪婪捕獲】
+            match = re.search(f'{re.escape(field)}[:：]?(.*?)?{full_delimiter_pattern}', block, re.DOTALL)
             
-            if match:
-                # 提取並清理值，去除 '項目內容' 或其他的表格文字
+            if match and match.group(1) is not None:
+                # 提取值
                 value = match.group(1).strip().replace('\n', ' ')
 
                 # 處理 '項目內容' 和 '欄位內容' 等前綴的清理
@@ -69,17 +68,35 @@ def parse_text_data(raw_text):
                         value = value[len(prefix):].strip()
 
                 card_info[field] = normalize_field(field, value)
+
+        # 3. 處理一對多 (多個人名) 的拆分邏輯 (此處邏輯保持不變，仍依賴 split_and_filter 邏輯)
+        names = [normalize_field('姓名', n.strip()) for n in card_info.get('姓名', '').split('/') if n.strip()]
+        names = [n for n in names if n]
         
-        # 3. 簡化紀錄建立：只寫入公司名稱 (僅供測試邊界是否正確)
-        company_name = card_info.get('公司名稱', '')
-        if company_name:
-            # 為了符合 Airtable 寫入的格式，我們只傳遞需要的欄位
-            record = {
-                '公司名稱': company_name,
-                # 其他欄位暫時留空，以測試公司名稱的純淨度
-                '地址': '', '統一編號': '', '公司電話': '', '傳真': '',
-                '職稱': '', '姓名': '', '手機': '', 'Email': ''
-            }
+        if not names:
+            continue # 如果沒有姓名，跳過這張名片
+
+        # 取得多人的職稱、手機、Email 資訊
+        titles = [normalize_field('職稱', t) for t in re.split(r' \/ | / |\n', card_info.get('職稱', '')) if t.strip()]
+        titles = [t for t in titles if t]
+        mobiles = [normalize_field('手機', m) for m in re.split(r' \(|\) | / ', card_info.get('手機', '')) if m.strip()]
+        mobiles = [m for m in mobiles if m]
+        emails = [normalize_field('Email', e) for e in re.split(r' \(|\) | / ', card_info.get('Email', '')) if e.strip()]
+        emails = [e for e in emails if e]
+
+        # 4. 建立最終的紀錄
+        for i, name in enumerate(names):
+            record = {}
+            # 寫入共用資訊
+            for field in ['公司名稱', '地址', '統一編號', '公司電話', '傳真']:
+                record[field] = normalize_field(field, card_info.get(field, ''))
+
+            # 寫入個人資訊 (按順序匹配)
+            record['姓名'] = name
+            record['職稱'] = titles[i] if i < len(titles) else titles[0] if titles else '' # 嘗試按序取，若無則取第一個
+            record['手機'] = mobiles[i] if i < len(mobiles) else ''
+            record['Email'] = emails[i] if i < len(emails) else ''
+
             parsed_records.append({k: normalize_field(k, v) for k, v in record.items()})
 
     return parsed_records
