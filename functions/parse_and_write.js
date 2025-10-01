@@ -76,23 +76,31 @@ function parseTextData(rawText) {
     for (const field of FIELDS) {
       const value = extractField(block, field);
       if (value) {
-        cardInfo[field] = value;
+        cardInfo[field] = normalizeField(field, value);
       }
     }
 
-    const names = splitAndFilter(cardInfo['姓名'], /\//);
+    const names = splitAndFilter(cardInfo['姓名'], /\//)
+      .map((name) => normalizeField('姓名', name))
+      .filter(Boolean);
     if (names.length === 0) {
       continue;
     }
 
-    const titles = splitAndFilter(cardInfo['職稱'], /\s*\/\s*|\n/);
-    const mobiles = splitAndFilter(cardInfo['手機'], / \(|\) | \/ /).filter((entry) => /\d/.test(entry));
-    const emails = splitAndFilter(cardInfo['Email'], / \(|\) | \/ /).filter((entry) => entry.includes('@'));
+    const titles = splitAndFilter(cardInfo['職稱'], /\s*\/\s*|\n/)
+      .map((title) => normalizeField('職稱', title))
+      .filter(Boolean);
+    const mobiles = splitAndFilter(cardInfo['手機'], / \(|\) | \/ /)
+      .map((mobile) => normalizeField('手機', mobile))
+      .filter(Boolean);
+    const emails = splitAndFilter(cardInfo['Email'], / \(|\) | \/ /)
+      .map((email) => normalizeField('Email', email))
+      .filter(Boolean);
 
     for (let index = 0; index < names.length; index += 1) {
       const record = {};
       for (const sharedField of ['公司名稱', '地址', '統一編號', '公司電話', '傳真']) {
-        record[sharedField] = cardInfo[sharedField] || '';
+        record[sharedField] = normalizeField(sharedField, cardInfo[sharedField] || '');
       }
 
       record['姓名'] = names[index];
@@ -135,7 +143,7 @@ function splitAndFilter(source = '', pattern) {
 function cleanRecord(record) {
   const cleaned = {};
   for (const [key, value] of Object.entries(record)) {
-    cleaned[key] = sanitizeMarkdown(value);
+    cleaned[key] = normalizeField(key, value);
   }
   return cleaned;
 }
@@ -203,11 +211,47 @@ function sanitizeMarkdown(value) {
   cleaned = cleaned.replace(/\*([^*]+)\*/g, '$1');
   cleaned = cleaned.replace(/_([^_]+)_/g, '$1');
   cleaned = cleaned.replace(/~~([^~]+)~~/g, '$1');
-  cleaned = cleaned.replace(/\[(.*?)\]\((.*?)\)/g, '$1');
+  cleaned = cleaned.replace(/\[(.*?)\]\((.*?)\)/g, '$1 $2');
+  cleaned = cleaned.replace(/mailto:\s*/gi, '');
   cleaned = cleaned.replace(/^\s*#+\s*/gm, '');
   cleaned = cleaned.replace(/^\s*([-*+]\s+|\d+\.\s+)/gm, '');
   cleaned = cleaned.replace(/<[^>]+>/g, '');
+  cleaned = cleaned.replace(/\|/g, ' ');
   cleaned = cleaned.replace(/\s+/g, ' ');
 
   return cleaned.trim();
+}
+
+function normalizeField(field, value) {
+  const sanitized = sanitizeMarkdown(value);
+  if (!sanitized) {
+    return '';
+  }
+
+  for (const marker of FIELDS) {
+    if (marker !== field && sanitized.includes(marker)) {
+      return '';
+    }
+  }
+
+  if (field === 'Email') {
+    const match = sanitized.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
+    return match ? match[0] : '';
+  }
+
+  if (field === '手機' || field === '公司電話') {
+    const digits = sanitized.replace(/[^0-9+]/g, '');
+    return digits || '';
+  }
+
+  const trimmed = sanitized.trim().replace(/^[\-_.;,:/\\\s]+|[\-_.;,:/\\\s]+$/g, '');
+  if (!trimmed) {
+    return '';
+  }
+
+  if (!/[A-Za-z0-9\u4e00-\u9fff]/.test(trimmed)) {
+    return '';
+  }
+
+  return trimmed;
 }

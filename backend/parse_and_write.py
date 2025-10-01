@@ -51,33 +51,37 @@ def parse_text_data(raw_text):
                 for f in FIELDS:
                     value = value.replace(f, '').strip()
 
-                card_info[field] = clean_markdown(value)
+                card_info[field] = normalize_field(field, value)
 
         # 3. 處理一對多 (多個人名) 的拆分邏輯
-        names = [n.strip() for n in card_info.get('姓名', '').split('/') if n.strip()]
+        names = [normalize_field('姓名', n.strip()) for n in card_info.get('姓名', '').split('/') if n.strip()]
+        names = [n for n in names if n]
         
         if not names:
             continue # 如果沒有姓名，跳過這張名片
 
         # 取得多人的職稱、手機、Email 資訊
-        titles = [t.strip() for t in re.split(r' \/ | / |\n', card_info.get('職稱', '')) if t.strip()]
-        mobiles = [m.strip() for m in re.split(r' \(|\) | / ', card_info.get('手機', '')) if m.strip() and re.search(r'\d', m)]
-        emails = [e.strip() for e in re.split(r' \(|\) | / ', card_info.get('Email', '')) if e.strip() and '@' in e]
+        titles = [normalize_field('職稱', t) for t in re.split(r' \/ | / |\n', card_info.get('職稱', '')) if t.strip()]
+        titles = [t for t in titles if t]
+        mobiles = [normalize_field('手機', m) for m in re.split(r' \(|\) | / ', card_info.get('手機', '')) if m.strip()]
+        mobiles = [m for m in mobiles if m]
+        emails = [normalize_field('Email', e) for e in re.split(r' \(|\) | / ', card_info.get('Email', '')) if e.strip()]
+        emails = [e for e in emails if e]
 
         # 4. 建立最終的紀錄
         for i, name in enumerate(names):
             record = {}
             # 寫入共用資訊
             for field in ['公司名稱', '地址', '統一編號', '公司電話', '傳真']:
-                record[field] = card_info.get(field, '')
+                record[field] = normalize_field(field, card_info.get(field, ''))
 
             # 寫入個人資訊 (按順序匹配)
             record['姓名'] = name
             record['職稱'] = titles[i] if i < len(titles) else titles[0] if titles else '' # 嘗試按序取，若無則取第一個
             record['手機'] = mobiles[i] if i < len(mobiles) else ''
             record['Email'] = emails[i] if i < len(emails) else ''
-            
-            parsed_records.append({k: clean_markdown(v) for k, v in record.items()})
+
+            parsed_records.append({k: normalize_field(k, v) for k, v in record.items()})
 
     return parsed_records
 
@@ -191,10 +195,40 @@ def clean_markdown(value):
     cleaned = re.sub(r'__([^_]+)__', r'\1', cleaned)
     cleaned = re.sub(r'_([^_]+)_', r'\1', cleaned)
     cleaned = re.sub(r'~~([^~]+)~~', r'\1', cleaned)
-    cleaned = re.sub(r'\[(.*?)\]\((.*?)\)', r'\1', cleaned)
+    cleaned = re.sub(r'\[(.*?)\]\((.*?)\)', r'\1 \2', cleaned)
+    cleaned = re.sub(r'mailto:\s*', '', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'^\s*#+\s*', '', cleaned.strip(), flags=re.MULTILINE)
     cleaned = re.sub(r'^\s*([-*+]\s+|\d+\.\s+)', '', cleaned, flags=re.MULTILINE)
     cleaned = re.sub(r'<[^>]+>', '', cleaned)
+    cleaned = cleaned.replace('|', ' ')
     cleaned = re.sub(r'\s+', ' ', cleaned)
 
     return cleaned.strip()
+
+
+def normalize_field(field, value):
+    if not value:
+        return ''
+
+    cleaned = clean_markdown(value)
+
+    for marker in FIELDS:
+        if marker != field and marker in cleaned:
+            return ''
+
+    if field == 'Email':
+        emails = re.findall(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', cleaned)
+        return emails[0] if emails else ''
+
+    if field in ('手機', '公司電話'):
+        digits = re.sub(r'[^0-9+]', '', cleaned)
+        return digits if digits else ''
+
+    cleaned = cleaned.strip('-_.,;:/\\ ')
+    if not cleaned:
+        return ''
+
+    if not re.search(r'[A-Za-z0-9\u4e00-\u9fff]', cleaned):
+        return ''
+
+    return cleaned
