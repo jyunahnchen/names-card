@@ -1,3 +1,8 @@
+const {
+  requireAuthentication,
+  jsonUnauthorized
+} = require('./_utils_auth');
+
 const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY;
 const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
 const AIRTABLE_TABLE_NAME = '名片王';
@@ -18,6 +23,11 @@ const CARD_SPLIT_REGEX = /(名片[一二三四五六七八九十]+：)/;
 const FIELD_LOOKAHEAD = '(?=職稱|姓名|手機|Email|名片[一二三四五六七八九十]+：|$)';
 
 exports.handler = async function handler(event) {
+  const session = requireAuthentication(event);
+  if (!session) {
+    return jsonUnauthorized();
+  }
+
   if (!AIRTABLE_API_KEY || !AIRTABLE_BASE_ID) {
     return jsonResponse(500, {
       message: '後端憑證未設定 (AIRTABLE_API_KEY 或 BASE_ID 遺失)。請檢查 Netlify 環境變數。'
@@ -90,7 +100,7 @@ function parseTextData(rawText) {
       record['手機'] = mobiles[index] || '';
       record['Email'] = emails[index] || '';
 
-      records.push(record);
+      records.push(cleanRecord(record));
     }
   }
 
@@ -109,7 +119,7 @@ function extractField(block, field) {
     value = value.replace(new RegExp(escapeForRegex(target), 'g'), '').trim();
   }
 
-  return value.replace(/\s+/g, ' ').trim();
+  return sanitizeMarkdown(value.replace(/\s+/g, ' ').trim());
 }
 
 function splitAndFilter(source = '', pattern) {
@@ -120,6 +130,14 @@ function splitAndFilter(source = '', pattern) {
     .split(pattern)
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function cleanRecord(record) {
+  const cleaned = {};
+  for (const [key, value] of Object.entries(record)) {
+    cleaned[key] = sanitizeMarkdown(value);
+  }
+  return cleaned;
 }
 
 async function writeToAirtable(records) {
@@ -171,4 +189,25 @@ function jsonResponse(statusCode, body) {
     },
     body: JSON.stringify(body)
   };
+}
+
+function sanitizeMarkdown(value) {
+  if (!value || typeof value !== 'string') {
+    return value || '';
+  }
+
+  let cleaned = value;
+  cleaned = cleaned.replace(/`([^`]+)`/g, '$1');
+  cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, '$1');
+  cleaned = cleaned.replace(/__([^_]+)__/g, '$1');
+  cleaned = cleaned.replace(/\*([^*]+)\*/g, '$1');
+  cleaned = cleaned.replace(/_([^_]+)_/g, '$1');
+  cleaned = cleaned.replace(/~~([^~]+)~~/g, '$1');
+  cleaned = cleaned.replace(/\[(.*?)\]\((.*?)\)/g, '$1');
+  cleaned = cleaned.replace(/^\s*#+\s*/gm, '');
+  cleaned = cleaned.replace(/^\s*([-*+]\s+|\d+\.\s+)/gm, '');
+  cleaned = cleaned.replace(/<[^>]+>/g, '');
+  cleaned = cleaned.replace(/\s+/g, ' ');
+
+  return cleaned.trim();
 }

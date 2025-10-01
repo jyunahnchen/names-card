@@ -5,152 +5,512 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>名片資訊批量匯入系統</title>
     <style>
+        :root {
+            --primary: #007bff;
+            --primary-dark: #0056b3;
+            --success-bg: #d4edda;
+            --success-text: #155724;
+            --error-bg: #f8d7da;
+            --error-text: #721c24;
+            --border-color: #ccc;
+            --card-bg: #ffffff;
+            --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            --overlay-bg: rgba(0, 0, 0, 0.65);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
         body {
             font-family: Arial, sans-serif;
-            margin: 20px;
+            margin: 0;
+            min-height: 100vh;
             background-color: #f4f7f6;
+            padding: 40px 16px;
         }
+
         .container {
-            max-width: 900px;
+            max-width: 960px;
             margin: auto;
-            background: #ffffff;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            background: var(--card-bg);
+            padding: 32px;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
         }
+
         h1 {
             color: #333;
             text-align: center;
             border-bottom: 2px solid #eee;
-            padding-bottom: 10px;
-            margin-bottom: 20px;
+            padding-bottom: 12px;
+            margin-bottom: 28px;
         }
+
+        h2 {
+            color: #333;
+            font-size: 20px;
+            margin: 24px 0 12px;
+        }
+
         label {
             display: block;
             margin-bottom: 8px;
             font-weight: bold;
             color: #555;
         }
+
         textarea {
             width: 100%;
-            padding: 15px;
-            box-sizing: border-box;
-            border: 1px solid #ccc;
-            border-radius: 4px;
+            padding: 16px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
             resize: vertical;
-            min-height: 400px; /* 較大的輸入區域 */
+            min-height: 360px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
             font-size: 14px;
         }
-        button {
-            background-color: #007bff;
+
+        .button {
+            background-color: var(--primary);
             color: white;
             padding: 12px 20px;
             border: none;
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
             font-size: 16px;
             transition: background-color 0.3s;
-            display: block;
-            width: 100%;
-            margin-top: 20px;
         }
-        button:hover {
-            background-color: #0056b3;
+
+        .button:hover {
+            background-color: var(--primary-dark);
         }
+
+        .button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
         .message-box {
-            margin-top: 20px;
-            padding: 15px;
-            border-radius: 4px;
-            min-height: 50px;
+            margin-top: 16px;
+            padding: 14px;
+            border-radius: 6px;
             font-weight: bold;
             text-align: center;
+            display: none;
         }
-        .success {
-            background-color: #d4edda;
-            color: #155724;
+
+        .message-box.success {
+            background-color: var(--success-bg);
+            color: var(--success-text);
         }
-        .error {
-            background-color: #f8d7da;
-            color: #721c24;
+
+        .message-box.error {
+            background-color: var(--error-bg);
+            color: var(--error-text);
+        }
+
+        .search-bar {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .search-bar input[type="text"] {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .card-grid {
+            margin-top: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 16px;
+        }
+
+        .result-card {
+            background: #fff;
+            border: 1px solid #e1e4e8;
+            border-radius: 10px;
+            padding: 16px;
+            box-shadow: var(--card-shadow);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .result-card h3 {
+            margin: 0;
+            font-size: 18px;
+            color: #1f2933;
+        }
+
+        .result-card p {
+            margin: 0;
+            font-size: 14px;
+            color: #4a5568;
+            word-break: break-word;
+        }
+
+        .overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--overlay-bg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 999;
+        }
+
+        .overlay.hidden {
+            display: none;
+        }
+
+        .auth-modal {
+            background: #fff;
+            padding: 28px;
+            border-radius: 12px;
+            width: min(360px, 90vw);
+            box-shadow: var(--card-shadow);
+        }
+
+        .auth-modal h2 {
+            text-align: center;
+            margin-top: 0;
+        }
+
+        .auth-form-group {
+            margin-bottom: 16px;
+        }
+
+        .auth-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .auth-message {
+            text-align: center;
+            font-size: 14px;
+            min-height: 20px;
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 24px 8px;
+            }
+
+            .container {
+                padding: 24px;
+            }
         }
     </style>
 </head>
 <body>
+<div id="authOverlay" class="overlay">
+    <div class="auth-modal">
+        <h2>登入系統</h2>
+        <form id="loginForm" novalidate>
+            <div class="auth-form-group">
+                <label for="username">帳號</label>
+                <input id="username" name="username" type="text" autocomplete="username" required>
+            </div>
+            <div class="auth-form-group">
+                <label for="password">密碼</label>
+                <input id="password" name="password" type="password" autocomplete="current-password" required>
+            </div>
+            <div class="auth-actions">
+                <button type="submit" class="button" id="loginButton">登入</button>
+                <div id="authMessage" class="auth-message"></div>
+            </div>
+        </form>
+    </div>
+</div>
 
 <div class="container">
     <h1>名片資訊批量匯入 Airtable</h1>
-    
-    <form id="importForm">
-        <label for="rawData">請貼入整理好的名片文字資料串：</label>
-        <textarea id="rawData" name="rawData" placeholder="請將名片一、名片二... 等結構化文字內容貼在這裡"></textarea>
-        
-        <button type="submit" id="submitButton">開始解析並寫入 Airtable</button>
-    </form>
-    
-    <div id="message" class="message-box" style="display: none;"></div>
+
+    <section class="search-section">
+        <h2>搜尋 Airtable 資料</h2>
+        <label for="searchQuery">輸入公司名稱或姓名：</label>
+        <div class="search-bar">
+            <input type="text" id="searchQuery" placeholder="例：雲啟數位 或 王小明" autocomplete="off">
+            <button type="button" class="button" id="searchButton">搜尋</button>
+        </div>
+        <div id="searchMessage" class="message-box"></div>
+        <div id="searchResults" class="card-grid"></div>
+    </section>
+
+    <section class="import-section">
+        <h2>批量匯入名片資料</h2>
+        <form id="importForm" novalidate>
+            <label for="rawData">請貼入整理好的名片文字資料串：</label>
+            <textarea id="rawData" name="rawData" placeholder="請將名片一、名片二... 等結構化文字內容貼在這裡"></textarea>
+            <button type="submit" class="button" id="submitButton">開始解析並寫入 Airtable</button>
+        </form>
+        <div id="message" class="message-box"></div>
+    </section>
 </div>
 
 <script>
-    document.getElementById('importForm').addEventListener('submit', async function(event) {
-        event.preventDefault(); // 阻止表單傳統提交
-        
-        const rawText = document.getElementById('rawData').value.trim();
-        const messageBox = document.getElementById('message');
-        const submitButton = document.getElementById('submitButton');
-        
-        messageBox.style.display = 'none';
-        messageBox.className = 'message-box';
-        submitButton.disabled = true;
-        submitButton.textContent = '資料處理中... 請稍候';
-        
-        if (!rawText) {
-            showMessage('請輸入文字內容！', 'error');
-            submitButton.disabled = false;
-            submitButton.textContent = '開始解析並寫入 Airtable';
+(function () {
+    const AUTH_STORAGE_KEY = 'names-card-token';
+    const overlay = document.getElementById('authOverlay');
+    const loginForm = document.getElementById('loginForm');
+    const loginButton = document.getElementById('loginButton');
+    const authMessage = document.getElementById('authMessage');
+    const importForm = document.getElementById('importForm');
+    const submitButton = document.getElementById('submitButton');
+    const messageBox = document.getElementById('message');
+    const rawDataTextarea = document.getElementById('rawData');
+    const searchButton = document.getElementById('searchButton');
+    const searchInput = document.getElementById('searchQuery');
+    const searchMessage = document.getElementById('searchMessage');
+    const searchResults = document.getElementById('searchResults');
+
+    let authToken = sessionStorage.getItem(AUTH_STORAGE_KEY) || '';
+
+    function showOverlay() {
+        overlay.classList.remove('hidden');
+        authMessage.textContent = '';
+        loginButton.disabled = false;
+        loginButton.textContent = '登入';
+        setTimeout(() => document.getElementById('username').focus(), 0);
+    }
+
+    function hideOverlay() {
+        overlay.classList.add('hidden');
+    }
+
+    function setAuthToken(token) {
+        authToken = token;
+        sessionStorage.setItem(AUTH_STORAGE_KEY, token);
+    }
+
+    function clearAuthToken() {
+        authToken = '';
+        sessionStorage.removeItem(AUTH_STORAGE_KEY);
+    }
+
+    function handleUnauthorized() {
+        clearAuthToken();
+        showOverlay();
+        showMessage(messageBox, '登入逾期或驗證失敗，請重新登入。', 'error');
+        showMessage(searchMessage, '登入逾期或驗證失敗，請重新登入。', 'error');
+    }
+
+    function showMessage(element, text, type) {
+        element.textContent = text;
+        element.className = `message-box ${type}`;
+        element.style.display = text ? 'block' : 'none';
+    }
+
+    async function authorizedFetch(url, options = {}) {
+        if (!authToken) {
+            throw new Error('尚未登入');
+        }
+        const config = { ...options };
+        const headers = new Headers(options.headers || {});
+        headers.set('Authorization', `Bearer ${authToken}`);
+        if (config.body && !headers.has('Content-Type')) {
+            headers.set('Content-Type', 'application/json');
+        }
+        config.headers = headers;
+
+        const response = await fetch(url, config);
+        if (response.status === 401) {
+            handleUnauthorized();
+            throw new Error('未授權存取');
+        }
+        return response;
+    }
+
+    loginForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+
+        if (!username || !password) {
+            authMessage.textContent = '請輸入帳號與密碼。';
             return;
         }
 
-        // Netlify Function 的 URL 路徑
-        // 這會指向您 functions/parse_and_write.py 檔案
-        const functionUrl = '/.netlify/functions/parse_and_write';
+        loginButton.disabled = true;
+        loginButton.textContent = '驗證中...';
+        authMessage.textContent = '';
 
         try {
-            const response = await fetch(functionUrl, {
+            const response = await fetch('/.netlify/functions/authenticate', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+
+            const result = await response.json();
+            if (!response.ok) {
+                authMessage.textContent = result.message || '登入失敗';
+                loginButton.disabled = false;
+                loginButton.textContent = '登入';
+                return;
+            }
+
+            setAuthToken(result.token);
+            authMessage.textContent = '';
+            hideOverlay();
+            rawDataTextarea.focus();
+        } catch (error) {
+            authMessage.textContent = `無法連線：${error.message}`;
+            loginButton.disabled = false;
+            loginButton.textContent = '登入';
+        }
+    });
+
+    importForm.addEventListener('submit', async function (event) {
+        event.preventDefault();
+
+        const rawText = rawDataTextarea.value.trim();
+        messageBox.style.display = 'none';
+        messageBox.className = 'message-box';
+
+        if (!rawText) {
+            showMessage(messageBox, '請輸入文字內容！', 'error');
+            return;
+        }
+
+        submitButton.disabled = true;
+        submitButton.textContent = '資料處理中... 請稍候';
+
+        try {
+            const response = await authorizedFetch('/.netlify/functions/parse_and_write', {
+                method: 'POST',
                 body: JSON.stringify({ text: rawText })
             });
-            
-            const result = await response.json();
 
+            const result = await response.json();
             if (response.ok) {
-                // HTTP 狀態碼 200 成功
-                showMessage(`✅ 成功！${result.message}`, 'success');
-                // 清空輸入框以利下次輸入
-                document.getElementById('rawData').value = ''; 
+                showMessage(messageBox, `✅ 成功！${result.message}`, 'success');
+                rawDataTextarea.value = '';
             } else {
-                // 處理非 200 的錯誤狀態碼 (如 400, 500)
-                showMessage(`❌ 寫入失敗: ${result.message || '未知錯誤'}`, 'error');
+                showMessage(messageBox, `❌ 寫入失敗: ${result.message || '未知錯誤'}`, 'error');
             }
-            
         } catch (error) {
-            console.error('Fetch error:', error);
-            showMessage(`❌ 網路連線或伺服器錯誤: ${error.message}`, 'error');
+            if (error.message === '未授權存取') {
+                return;
+            }
+            showMessage(messageBox, `❌ 網路連線或伺服器錯誤: ${error.message}`, 'error');
         } finally {
             submitButton.disabled = false;
             submitButton.textContent = '開始解析並寫入 Airtable';
         }
     });
 
-    function showMessage(msg, type) {
-        const messageBox = document.getElementById('message');
-        messageBox.textContent = msg;
-        messageBox.className = `message-box ${type}`;
-        messageBox.style.display = 'block';
-    }
-</script>
+    async function handleSearch() {
+        const query = searchInput.value.trim();
+        showMessage(searchMessage, '', '');
+        searchResults.innerHTML = '';
 
+        if (!query) {
+            showMessage(searchMessage, '請輸入搜尋關鍵字。', 'error');
+            return;
+        }
+
+        searchButton.disabled = true;
+        searchButton.textContent = '搜尋中...';
+
+        try {
+            const response = await authorizedFetch(`/.netlify/functions/search_records?query=${encodeURIComponent(query)}`);
+            const result = await response.json();
+
+            if (!response.ok) {
+                showMessage(searchMessage, result.message || '搜尋失敗', 'error');
+                return;
+            }
+
+            const records = result.records || [];
+            if (records.length === 0) {
+                showMessage(searchMessage, '找不到符合的資料。', 'error');
+                return;
+            }
+
+            renderSearchResults(records);
+            showMessage(searchMessage, `找到 ${records.length} 筆資料。`, 'success');
+        } catch (error) {
+            if (error.message === '未授權存取') {
+                return;
+            }
+            showMessage(searchMessage, `搜尋失敗：${error.message}`, 'error');
+        } finally {
+            searchButton.disabled = false;
+            searchButton.textContent = '搜尋';
+        }
+    }
+
+    function renderSearchResults(records) {
+        searchResults.innerHTML = '';
+        for (const item of records) {
+            const { fields } = item;
+            const card = document.createElement('div');
+            card.className = 'result-card';
+
+            const title = document.createElement('h3');
+            title.textContent = `${fields.姓名 || '未填姓名'}${fields.職稱 ? '｜' + fields.職稱 : ''}`;
+            card.appendChild(title);
+
+            const company = document.createElement('p');
+            company.textContent = `公司：${fields.公司名稱 || '未填公司'}`;
+            card.appendChild(company);
+
+            if (fields.地址) {
+                const address = document.createElement('p');
+                address.textContent = `地址：${fields.地址}`;
+                card.appendChild(address);
+            }
+
+            if (fields.公司電話) {
+                const phone = document.createElement('p');
+                phone.textContent = `公司電話：${fields.公司電話}`;
+                card.appendChild(phone);
+            }
+
+            if (fields.手機) {
+                const mobile = document.createElement('p');
+                mobile.textContent = `手機：${fields.手機}`;
+                card.appendChild(mobile);
+            }
+
+            if (fields.Email) {
+                const email = document.createElement('p');
+                email.textContent = `Email：${fields.Email}`;
+                card.appendChild(email);
+            }
+
+            searchResults.appendChild(card);
+        }
+    }
+
+    searchButton.addEventListener('click', handleSearch);
+    searchInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            handleSearch();
+        }
+    });
+
+    if (!authToken) {
+        showOverlay();
+    } else {
+        hideOverlay();
+    }
+})();
+</script>
 </body>
 </html>

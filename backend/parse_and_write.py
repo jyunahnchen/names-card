@@ -46,12 +46,12 @@ def parse_text_data(raw_text):
             if match:
                 # 提取並清理值，去除 '項目內容' 或其他的表格文字
                 value = match.group(1).split('項目內容')[-1].strip().replace('\n', ' ')
-                
+
                 # 移除所有在值開頭出現的欄位名稱 (這是因為您的輸入格式中，'項目內容'後面可能會跟著欄位名稱)
                 for f in FIELDS:
                     value = value.replace(f, '').strip()
 
-                card_info[field] = value
+                card_info[field] = clean_markdown(value)
 
         # 3. 處理一對多 (多個人名) 的拆分邏輯
         names = [n.strip() for n in card_info.get('姓名', '').split('/') if n.strip()]
@@ -77,7 +77,7 @@ def parse_text_data(raw_text):
             record['手機'] = mobiles[i] if i < len(mobiles) else ''
             record['Email'] = emails[i] if i < len(emails) else ''
             
-            parsed_records.append(record)
+            parsed_records.append({k: clean_markdown(v) for k, v in record.items()})
 
     return parsed_records
 
@@ -177,3 +177,24 @@ def _extract_error_message(http_error):
         return raw
     except Exception:
         return str(http_error)
+
+
+def clean_markdown(value):
+    """移除常見 Markdown 標記，避免寫入 Airtable 時夾帶符號"""
+    if not isinstance(value, str):
+        return value
+
+    cleaned = value
+    cleaned = re.sub(r'`([^`]+)`', r'\1', cleaned)
+    cleaned = re.sub(r'\*\*([^*]+)\*\*', r'\1', cleaned)
+    cleaned = re.sub(r'\*([^*]+)\*', r'\1', cleaned)
+    cleaned = re.sub(r'__([^_]+)__', r'\1', cleaned)
+    cleaned = re.sub(r'_([^_]+)_', r'\1', cleaned)
+    cleaned = re.sub(r'~~([^~]+)~~', r'\1', cleaned)
+    cleaned = re.sub(r'\[(.*?)\]\((.*?)\)', r'\1', cleaned)
+    cleaned = re.sub(r'^\s*#+\s*', '', cleaned.strip(), flags=re.MULTILINE)
+    cleaned = re.sub(r'^\s*([-*+]\s+|\d+\.\s+)', '', cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r'<[^>]+>', '', cleaned)
+    cleaned = re.sub(r'\s+', ' ', cleaned)
+
+    return cleaned.strip()
