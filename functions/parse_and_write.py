@@ -7,7 +7,7 @@ from pyairtable import Table
 # 從 Netlify 環境變數中讀取 API Key 和 Base ID
 AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID")
-AIRTABLE_TABLE_NAME = "您的表格名稱" # 例如: "名片資料"
+AIRTABLE_TABLE_NAME = "工作表1" # 例如: "名片資料"
 
 
 def handler(event, context):
